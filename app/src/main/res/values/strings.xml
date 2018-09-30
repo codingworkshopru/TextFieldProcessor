@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">TextFieldProcessor</string>
+    <string name="hint">Введите email</string>
+</resources>
