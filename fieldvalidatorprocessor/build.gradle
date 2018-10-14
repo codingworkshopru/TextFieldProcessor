@@ -1,6 +1,10 @@
 apply plugin: 'java'
 
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
 dependencies {
     implementation project (':fieldvalidatorlibrary')
+    implementation 'com.squareup:javapoet:1.11.1'
     testImplementation 'junit:junit:4.12'
 }
