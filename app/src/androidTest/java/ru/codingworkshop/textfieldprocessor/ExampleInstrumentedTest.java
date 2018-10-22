@@ -1,11 +1,11 @@
 package ru.codingworkshop.textfieldprocessor;
 
-import android.support.design.widget.TextInputEditText;
 import android.support.design.widget.TextInputLayout;
 import android.support.test.espresso.matcher.BoundedMatcher;
 import android.support.test.rule.ActivityTestRule;
 import android.support.test.runner.AndroidJUnit4;
 import android.view.View;
+import android.widget.EditText;
 
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
@@ -17,9 +17,10 @@ import static android.support.test.espresso.Espresso.onView;
 import static android.support.test.espresso.action.ViewActions.click;
 import static android.support.test.espresso.action.ViewActions.typeText;
 import static android.support.test.espresso.assertion.ViewAssertions.matches;
-import static android.support.test.espresso.matcher.ViewMatchers.withClassName;
+import static android.support.test.espresso.matcher.ViewMatchers.isAssignableFrom;
+import static android.support.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static android.support.test.espresso.matcher.ViewMatchers.withId;
-import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.both;
 
 /**
  * Instrumented test, which will execute on an Android device.
@@ -39,13 +40,13 @@ public class ExampleInstrumentedTest {
 
     @Test
     public void invalidEmailTest() {
-        onView(withClassName(is(TextInputEditText.class.getCanonicalName()))).perform(typeText("qwerty"));
+        onView(both(isDescendantOfA(withId(R.id.textInputLayout))).and(isAssignableFrom(EditText.class))).perform(typeText("qwerty"));
         onView(withId(R.id.textInputLayout)).check(matches(hasError(new EmailValidator().getErrorText())));
     }
 
     @Test
     public void validEmailTest() {
-        onView(withClassName(is(TextInputEditText.class.getCanonicalName()))).perform(typeText("qwerty@mail.com"));
+        onView(both(isDescendantOfA(withId(R.id.textInputLayout))).and(isAssignableFrom(EditText.class))).perform(typeText("qwerty@mail.com"));
         onView(withId(R.id.textInputLayout)).check(matches(withoutError()));
     }
 

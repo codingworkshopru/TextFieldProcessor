@@ -15,6 +15,7 @@ public class TextInputLayoutAdapter implements TextFieldViewAdapter<TextInputLay
         textField.setError(error);
     }
 
+    @Override
     public void clearError(TextInputLayout textField) {
         textField.setError("");
         textField.setErrorEnabled(false);

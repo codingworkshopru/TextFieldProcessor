@@ -1,9 +1,9 @@
 package ru.codingworkshop.fieldvalidatorprocessor;
 
 import com.squareup.javapoet.ClassName;
-import com.squareup.javapoet.CodeBlock;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 
 import java.io.IOException;
@@ -56,18 +56,21 @@ public class ValidatorClassGenerator extends AbstractProcessor {
             enclosingClassWithTypes.keySet()
                     .forEach(enclosingType -> {
                         ClassName validatorTypeName = ClassName.get(processingEnv.getElementUtils().getPackageOf(enclosingType).toString(), enclosingType.getSimpleName() + "Validator");
-                        TypeSpec.Builder enclosingTypeSpecBuilder = TypeSpec.classBuilder(validatorTypeName);
+                        TypeSpec.Builder enclosingTypeSpecBuilder = TypeSpec.classBuilder(validatorTypeName)
+                                .addField(TypeName.get(enclosingType.asType()), toCamelCase(enclosingType.getSimpleName().toString()), Modifier.PRIVATE);
 
 
                         MethodSpec constructorSpec = MethodSpec.constructorBuilder()
                                 .addModifiers(Modifier.PRIVATE)
+                                .addParameter(TypeName.get(enclosingType.asType()), toCamelCase(enclosingType.getSimpleName().toString()))
+                                .addStatement("this.$N = $N", toCamelCase(enclosingType.getSimpleName().toString()), toCamelCase(enclosingType.getSimpleName().toString()))
                                 .build();
 
                         MethodSpec initSpec = MethodSpec.methodBuilder("init")
                                 .returns(validatorTypeName)
                                 .addModifiers(Modifier.STATIC)
-                                .addParameter(validatorTypeName, validatorTypeName.simpleName())
-                                .addStatement("return new $N()", validatorTypeName.simpleName())
+                                .addParameter(TypeName.get(enclosingType.asType()), toCamelCase(enclosingType.getSimpleName().toString()))
+                                .addStatement("return new $T($N)", validatorTypeName, toCamelCase(enclosingType.getSimpleName().toString()))
                                 .build();
 
                         List<MethodSpec> methods = new LinkedList<>(Arrays.asList(constructorSpec, initSpec));
@@ -76,7 +79,7 @@ public class ValidatorClassGenerator extends AbstractProcessor {
                                 enclosingClassWithTypes.get(enclosingType)
                                         .stream()
                                         .map(field ->
-                                                MethodSpec.methodBuilder("validate" + field.getSimpleName().toString().substring(0, 1).toUpperCase() + field.getSimpleName())
+                                                MethodSpec.methodBuilder(toCamelCase("validate", field.getSimpleName().toString()))
                                                         .returns(void.class)
                                                         .build()
                                         )
@@ -146,5 +149,14 @@ public class ValidatorClassGenerator extends AbstractProcessor {
             processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Not a field", field);
         }
         throw new RuntimeException();
+    }
+
+    public String toCamelCase(String... args) {
+        String result = Stream.of(args)
+                .map(part -> part.substring(0, 1).toUpperCase() + part.substring(1))
+                .collect(Collectors.joining());
+
+        return result.substring(0, 1).toLowerCase() + result.substring(1);
+
     }
 }
