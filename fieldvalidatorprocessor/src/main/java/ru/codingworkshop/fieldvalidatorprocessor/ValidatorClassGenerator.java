@@ -1,12 +1,18 @@
 package ru.codingworkshop.fieldvalidatorprocessor;
 
+import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.CodeBlock;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
+import com.squareup.javapoet.TypeVariableName;
+import com.squareup.javapoet.WildcardTypeName;
 
 import java.io.IOException;
+import java.lang.reflect.ParameterizedType;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedList;
@@ -34,6 +40,8 @@ import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 
 import ru.codingworkshop.fieldvalidatorlibrary.TextFieldValidator;
+import ru.codingworkshop.fieldvalidatorlibrary.TextFieldViewAdapter;
+import ru.codingworkshop.fieldvalidatorlibrary.Validator;
 
 @SupportedAnnotationTypes("ru.codingworkshop.fieldvalidatorlibrary.TextFieldValidator")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
@@ -56,35 +64,90 @@ public class ValidatorClassGenerator extends AbstractProcessor {
             enclosingClassWithTypes.keySet()
                     .forEach(enclosingType -> {
                         ClassName validatorTypeName = ClassName.get(processingEnv.getElementUtils().getPackageOf(enclosingType).toString(), enclosingType.getSimpleName() + "Validator");
+                        final String fieldContainerName = toCamelCase(enclosingType.getSimpleName().toString());
                         TypeSpec.Builder enclosingTypeSpecBuilder = TypeSpec.classBuilder(validatorTypeName)
-                                .addField(TypeName.get(enclosingType.asType()), toCamelCase(enclosingType.getSimpleName().toString()), Modifier.PRIVATE);
+                                .addField(TypeName.get(enclosingType.asType()), fieldContainerName, Modifier.PRIVATE);
 
 
                         MethodSpec constructorSpec = MethodSpec.constructorBuilder()
                                 .addModifiers(Modifier.PRIVATE)
-                                .addParameter(TypeName.get(enclosingType.asType()), toCamelCase(enclosingType.getSimpleName().toString()))
-                                .addStatement("this.$N = $N", toCamelCase(enclosingType.getSimpleName().toString()), toCamelCase(enclosingType.getSimpleName().toString()))
+                                .addParameter(TypeName.get(enclosingType.asType()), fieldContainerName)
+                                .addStatement("this.$N = $N", fieldContainerName, fieldContainerName)
                                 .build();
 
                         MethodSpec initSpec = MethodSpec.methodBuilder("init")
                                 .returns(validatorTypeName)
                                 .addModifiers(Modifier.STATIC)
-                                .addParameter(TypeName.get(enclosingType.asType()), toCamelCase(enclosingType.getSimpleName().toString()))
-                                .addStatement("return new $T($N)", validatorTypeName, toCamelCase(enclosingType.getSimpleName().toString()))
+                                .addParameter(TypeName.get(enclosingType.asType()), fieldContainerName)
+                                .addStatement("return new $T($N)", validatorTypeName, fieldContainerName)
                                 .build();
 
-                        List<MethodSpec> methods = new LinkedList<>(Arrays.asList(constructorSpec, initSpec));
+                        TypeVariableName typeVariableName = TypeVariableName.get("T");
+                        MethodSpec validateFieldMethodSpec = MethodSpec.methodBuilder("validateField")
+                                .returns(boolean.class)
+                                .addTypeVariable(typeVariableName)
+                                .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+                                .addParameter(typeVariableName, "field")
+                                .addParameter(ParameterizedTypeName.get(ClassName.get(TextFieldViewAdapter.class), typeVariableName), "adapter")
+                                .addParameter(Validator[].class, "validators")
+                                .varargs()
+                                .addStatement("$T text = adapter.getText(field)", String.class)
+                                .beginControlFlow("for ($T validator : validators)", Validator.class)
+                                .beginControlFlow("if (validator.validate(text))")
+                                .addStatement("adapter.clearError(field)")
+                                .nextControlFlow("else")
+                                .addStatement("adapter.setError(field, validator.getErrorText())")
+                                .addStatement("return false")
+                                .endControlFlow()
+                                .endControlFlow()
+                                .addStatement("return true")
+                                .build();
 
-                        methods.addAll(
-                                enclosingClassWithTypes.get(enclosingType)
-                                        .stream()
-                                        .map(field ->
-                                                MethodSpec.methodBuilder(toCamelCase("validate", field.getSimpleName().toString()))
-                                                        .returns(void.class)
-                                                        .build()
-                                        )
-                                        .collect(Collectors.toList())
-                        );
+                        List<MethodSpec> methods = new LinkedList<>(Arrays.asList(constructorSpec, initSpec, validateFieldMethodSpec));
+
+                        List<MethodSpec> validateMethods = enclosingClassWithTypes.get(enclosingType)
+                                .stream()
+                                .map(field ->
+                                        {
+                                            String fieldName = field.getSimpleName().toString();
+                                            TypeMirror adapter;
+                                            List<TypeMirror> validators;
+                                            try {
+                                                adapter = (TypeMirror) getAnnotationParameter(TextFieldValidator.class.getMethod("adapter").getName(), field);
+                                                validators = Stream.of(getAnnotationParameter(TextFieldValidator.class.getMethod("validator").getName(), field))
+                                                        .map(obj -> (Collection<?>) obj)
+                                                        .flatMap(Collection::stream)
+                                                        .map(annotationValue -> (AnnotationValue) annotationValue)
+                                                        .map(annotationValue -> (TypeMirror) annotationValue.getValue())
+                                                        .collect(Collectors.toList());
+                                            } catch (NoSuchMethodException e) {
+                                                e.printStackTrace();
+                                                printError("It's impossible", field);
+                                                return null;
+                                            }
+
+                                            CodeBlock.Builder builder = CodeBlock.builder()
+                                                    .add("return validateField($L.$L, new $T()", fieldContainerName, fieldName, adapter);
+                                            for (TypeMirror v : validators) {
+                                                builder.add(", new $T()", v);
+                                            }
+                                            builder.add(")");
+
+                                            return MethodSpec.methodBuilder(toCamelCase("validate", fieldName))
+                                                    .returns(boolean.class)
+                                                    .addStatement(builder.build())
+                                                    .build();
+                                        }
+                                )
+                                .collect(Collectors.toList());
+
+                        final MethodSpec.Builder validateAllMethodSpec = MethodSpec.methodBuilder("validateAll")
+                                .addStatement("return " + validateMethods.stream().map(methodSpec -> methodSpec.name+"()").collect(Collectors.joining(" && ")))
+                                .returns(boolean.class);
+
+                        methods.addAll(validateMethods);
+                        methods.add(validateAllMethodSpec.build());
+
                         enclosingTypeSpecBuilder.addMethods(methods);
 
                         JavaFile jf = JavaFile.builder(processingEnv.getElementUtils().getPackageOf(enclosingType).getQualifiedName().toString(), enclosingTypeSpecBuilder.build())
@@ -96,23 +159,6 @@ public class ValidatorClassGenerator extends AbstractProcessor {
                             e.printStackTrace();
                         }
                     });
-
-            annotatedFields.forEach(field -> {
-                try {
-                    TypeMirror adapter = (TypeMirror) getAnnotationParameter(TextFieldValidator.class.getMethod("adapter").getName(), field);
-                    List<TypeMirror> validators = Stream.of(getAnnotationParameter(TextFieldValidator.class.getMethod("validator").getName(), field))
-                            .map(obj -> (Collection<?>) obj)
-                            .flatMap(Collection::stream)
-                            .map(annotationValue -> (AnnotationValue) annotationValue)
-                            .map(annotationValue -> (TypeMirror) annotationValue.getValue())
-                            .collect(Collectors.toList());
-
-                    PackageElement packageOf = processingEnv.getElementUtils().getPackageOf(processingEnv.getTypeUtils().asElement(adapter));
-                    validators.clear();
-                } catch (NoSuchMethodException e) {
-                    e.printStackTrace();
-                }
-            });
         }
         return false;
     }
@@ -127,7 +173,7 @@ public class ValidatorClassGenerator extends AbstractProcessor {
         if (parameterElement.isPresent()) {
             return elementValues.get(parameterElement.get()).getValue();
         } else {
-            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Annotation parameter not found", field);
+            printError("Annotation parameter not found", field);
         }
         throw new RuntimeException();
     }
@@ -143,15 +189,19 @@ public class ValidatorClassGenerator extends AbstractProcessor {
             if (any.isPresent()) {
                 return any.get();
             } else {
-                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "WTF! Field isn't annotated with " + canonicalName, field);
+                printError("WTF! Field isn't annotated with " + canonicalName, field);
             }
         } else {
-            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Not a field", field);
+            printError("Not a field", field);
         }
         throw new RuntimeException();
     }
 
-    public String toCamelCase(String... args) {
+    private void printError(String error, Element element) {
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, error, element);
+    }
+
+    private String toCamelCase(String... args) {
         String result = Stream.of(args)
                 .map(part -> part.substring(0, 1).toUpperCase() + part.substring(1))
                 .collect(Collectors.joining());

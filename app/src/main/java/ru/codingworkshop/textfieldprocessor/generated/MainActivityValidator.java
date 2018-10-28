@@ -1,8 +1,5 @@
 package ru.codingworkshop.textfieldprocessor.generated;
 
-import java.util.Arrays;
-import java.util.List;
-
 import ru.codingworkshop.fieldvalidatorlibrary.TextFieldViewAdapter;
 import ru.codingworkshop.fieldvalidatorlibrary.Validator;
 import ru.codingworkshop.textfieldprocessor.EmailValidator;
@@ -22,15 +19,11 @@ public class MainActivityValidator {
     }
 
     public boolean validateEmail() {
-        List<Validator> validators = Arrays.asList(
-                new EmptyFieldValidator(),
-                new EmailValidator()
-        );
-
-        return validateField(validators, container.email, new TextInputLayoutAdapter());
+        return validateField(container.email, new TextInputLayoutAdapter(),
+                new EmptyFieldValidator(), new EmailValidator());
     }
 
-    private static <T> boolean validateField(Iterable<Validator> validators, T field, TextFieldViewAdapter<T> adapter) {
+    private static <T> boolean validateField(T field, TextFieldViewAdapter<T> adapter, Validator... validators) {
         String text = adapter.getText(field);
         for (Validator v : validators) {
             if (v.validate(text)) {
@@ -43,7 +36,7 @@ public class MainActivityValidator {
         return true;
     }
 
-    public void validateAll() {
-        validateEmail();
+    public boolean validateAll() {
+        return validateEmail();
     }
 }
